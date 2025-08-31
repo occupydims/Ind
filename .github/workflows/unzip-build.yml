@@ -9,9 +9,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Ensure source.zip exists
+      - name: Ensure source.zip exists at repo root
         run: test -f source.zip || { echo "source.zip not found at repo root"; exit 1; }
 
       - name: Unzip project
@@ -23,34 +24,40 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # Android SDK (no env var conflicts, no deprecated inputs)
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
           packages: |
             platforms;android-34
             build-tools;34.0.0
+            platform-tools
 
       - name: Build debug APK (auto-detect project dir)
         run: |
           set -e
           PROJ_DIR="$(find . -maxdepth 2 -type f -name settings.gradle -printf '%h\n' | head -n1)"
-          echo "Detected project directory: $PROJ_DIR"
-          [ -n "$PROJ_DIR" ] || { echo "settings.gradle not found"; exit 1; }
-          cd "$PROJ_DIR"
+          echo "Detected project directory: ${PROJ_DIR}"
+          [ -n "${PROJ_DIR}" ] || { echo "settings.gradle not found in zip"; exit 1; }
+          cd "${PROJ_DIR}"
           if [ -x ./gradlew ]; then
             chmod +x ./gradlew
-            ./gradlew :app:assembleDebug
+            ./gradlew :app:assembleDebug --stacktrace --no-daemon | tee ../build-log.txt
           else
-            echo "No gradle wrapper; installing Gradle 8.6"
             curl -sL https://services.gradle.org/distributions/gradle-8.6-bin.zip -o gradle.zip
             unzip -q gradle.zip -d $HOME/gradle
             export PATH="$HOME/gradle/gradle-8.6/bin:$PATH"
-            gradle :app:assembleDebug
+            gradle :app:assembleDebug --stacktrace --no-daemon | tee ../build-log.txt
           fi
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
           path: "**/app/build/outputs/apk/debug/*.apk"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: "**/build-log.txt"
