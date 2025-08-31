@@ -3,70 +3,53 @@ name: Unzip & Build APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # Checkout repository
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # Ensure source.zip exists
       - name: Ensure source.zip exists
-        run: |
-          if [ ! -f source.zip ]; then
-            echo "source.zip not found at repo root"; exit 1
-          fi
+        run: test -f source.zip || { echo "source.zip not found at repo root"; exit 1; }
 
-      # Unzip the project
       - name: Unzip project
         run: unzip -o source.zip -d .
 
-      # Set up JDK 17
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
 
-      # Install Android SDK + Build Tools manually
-      - name: Install Android SDK + Build Tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget unzip
-          wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O cmdtools.zip
-          mkdir -p $HOME/android-sdk/cmdline-tools
-          unzip -q cmdtools.zip -d $HOME/android-sdk/cmdline-tools
-          mv $HOME/android-sdk/cmdline-tools/cmdline-tools $HOME/android-sdk/cmdline-tools/latest
-          yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=$HOME/android-sdk \
-            "platform-tools" \
-            "platforms;android-34" \
-            "build-tools;34.0.0"
-          echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
-          echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
-
-      # Set up Gradle 8.6
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      # Android SDK (no env var conflicts, no deprecated inputs)
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
         with:
-          gradle-version: 8.6
+          packages: |
+            platforms;android-34
+            build-tools;34.0.0
 
-      # Build debug APK dynamically (auto-detect project folder)
-      - name: Build debug APK
+      - name: Build debug APK (auto-detect project dir)
         run: |
           set -e
-          PROJ_DIR="$(find . -maxdepth 2 -type f -name 'settings.gradle' -printf '%h\n' | head -n1)"
-          echo "Detected project directory: ${PROJ_DIR}"
-          if [ -z "$PROJ_DIR" ]; then
-            echo "Could not find settings.gradle. Check your source.zip"; exit 1
-          fi
+          PROJ_DIR="$(find . -maxdepth 2 -type f -name settings.gradle -printf '%h\n' | head -n1)"
+          echo "Detected project directory: $PROJ_DIR"
+          [ -n "$PROJ_DIR" ] || { echo "settings.gradle not found"; exit 1; }
           cd "$PROJ_DIR"
-          gradle :app:assembleDebug
+          if [ -x ./gradlew ]; then
+            chmod +x ./gradlew
+            ./gradlew :app:assembleDebug
+          else
+            echo "No gradle wrapper; installing Gradle 8.6"
+            curl -sL https://services.gradle.org/distributions/gradle-8.6-bin.zip -o gradle.zip
+            unzip -q gradle.zip -d $HOME/gradle
+            export PATH="$HOME/gradle/gradle-8.6/bin:$PATH"
+            gradle :app:assembleDebug
+          fi
 
-      # Upload APK artifact (no matter where it lives)
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
