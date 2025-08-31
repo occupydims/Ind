@@ -1,0 +1,42 @@
+name: Unzip & Build APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure source.zip exists
+        run: |
+          if [ ! -f source.zip ]; then
+            echo "source.zip not found at repo root"; exit 1
+          fi
+      - name: Unzip project
+        run: unzip -o source.zip -d .
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 34
+          build-tools: '34.0.0'
+      - name: Accept licenses
+        run: yes | sdkmanager --licenses
+      - name: Set up Gradle (no wrapper)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.6
+      - name: Build debug APK
+        working-directory: InstantishApp
+        run: gradle :app:assembleDebug
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: InstantishApp/app/build/outputs/apk/debug/*.apk
+          
